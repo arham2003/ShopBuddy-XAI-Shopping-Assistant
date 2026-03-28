@@ -1,0 +1,31 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	Supervisor(Supervisor)
+	User\20Confirmation(User Confirmation)
+	Scraper(Scraper)
+	Filter(Filter)
+	Analyzer(Analyzer)
+	Reviewer(Reviewer)
+	Explainer(Explainer)
+	Currency\20Converter(Currency Converter)
+	__end__([<p>__end__</p>]):::last
+	Analyzer --> Reviewer;
+	Explainer -. &nbsp;currency_converter&nbsp; .-> Currency\20Converter;
+	Explainer -. &nbsp;supervisor&nbsp; .-> Supervisor;
+	Explainer -.-> __end__;
+	Filter --> Analyzer;
+	Reviewer --> Explainer;
+	Scraper --> Filter;
+	Supervisor --> User\20Confirmation;
+	User\20Confirmation -. &nbsp;scraper&nbsp; .-> Scraper;
+	User\20Confirmation -.-> __end__;
+	__start__ --> Supervisor;
+	Currency\20Converter --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

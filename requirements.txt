@@ -1,0 +1,14 @@
+langgraph
+langchain
+langsmith
+python-dotenv
+langchain-groq
+langchain_tavily
+firecrawl-py 
+fastapi
+pydantic
+uvicorn[standard]
+httpx[http2]
+beautifulsoup4
+curl_cffi
+langchain-google-genai
