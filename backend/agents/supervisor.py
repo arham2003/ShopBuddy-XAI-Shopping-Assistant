@@ -101,6 +101,17 @@ def _clean_json(text: str) -> str:
     return text.strip()
 
 
+def _coerce_min_reviews(value) -> int:
+    """Normalize min_reviews to a safe positive integer fallback."""
+    try:
+        if value is None:
+            return settings.DEFAULT_MIN_REVIEWS
+        iv = int(value)
+        return iv if iv >= 0 else settings.DEFAULT_MIN_REVIEWS
+    except (TypeError, ValueError):
+        return settings.DEFAULT_MIN_REVIEWS
+
+
 # ---------------------------------------------------------------------------
 # Parse prompt (shared across all models)
 # ---------------------------------------------------------------------------
@@ -207,7 +218,7 @@ async def _direct_parse(user_query: str, display_currency: str, active_llm=None)
         "search_terms": data["search_terms"],
         "budget_max": data.get("budget_max"),
         "budget_currency": data.get("budget_currency", display_currency),
-        "min_reviews": data.get("min_reviews", settings.DEFAULT_MIN_REVIEWS),
+        "min_reviews": _coerce_min_reviews(data.get("min_reviews")),
         "category_hint": data.get("category_hint", ""),
     }
 
@@ -297,7 +308,7 @@ async def supervisor_node(state: ShoppingState) -> dict:
                 "search_terms": data.get("search_terms", [user_query]),
                 "budget_max": data.get("budget_max"),
                 "budget_currency": data.get("budget_currency", display_currency),
-                "min_reviews": data.get("min_reviews", settings.DEFAULT_MIN_REVIEWS),
+                "min_reviews": _coerce_min_reviews(data.get("min_reviews")),
                 "category_hint": data.get("category_hint", ""),
             }
 

@@ -21,7 +21,7 @@ import json
 import logging
 import re
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from config import settings
@@ -96,6 +96,53 @@ def _clean_json(text: str) -> str:
     return text.strip()
 
 
+_RELEVANCE_SYSTEM_PROMPT = """You are a strict product relevance checker for e-commerce search.
+
+Your task is ONLY to classify whether each candidate product is relevant to the user search intent.
+
+Rules:
+1) BRAND PRIORITY:
+    - If the query mentions a specific brand, ONLY products from that exact brand are relevant.
+2) PRODUCT-TYPE PRIORITY:
+    - Product must match the core requested product type.
+    - Accessories/parts/unrelated products are irrelevant.
+3) DO NOT USE PRICE OR BUDGET FOR RELEVANCE:
+    - Ignore product price completely in this stage.
+    - Budget filtering is handled separately by deterministic logic.
+4) ORDER LOCK:
+    - Return exactly one verdict per input product, in the same order.
+5) NO HALLUCINATION:
+    - Use only provided search terms and product names.
+    - Do not invent products, brands, or specs.
+
+Return ONLY a JSON array of objects:
+[
+  {"name": "exact name", "relevant": true, "reason": "short reason"}
+]
+"""
+
+
+_DUPLICATE_SYSTEM_PROMPT = """You are a strict cross-platform duplicate matcher.
+
+Task:
+- Find TRUE duplicates between Daraz and Amazon lists.
+- Duplicate means same brand + same model/product identity.
+
+Rules:
+1) Different brands are NEVER duplicates.
+2) Similar category alone is NOT enough.
+3) Ignore price when deciding duplicates (price is used later only to choose cheaper listing).
+4) Use only given lists and indexes.
+
+Return ONLY a JSON array:
+[
+  {"daraz_index": 0, "amazon_index": 2, "reason": "same model"}
+]
+
+Return [] if no true duplicates.
+"""
+
+
 # ---------------------------------------------------------------------------
 # Individual filter stages (pure Python — no LLM)
 # ---------------------------------------------------------------------------
@@ -113,7 +160,10 @@ def _budget_filter(
     margin = budget_max * 1.10  # allow 10% above budget
     passed = []
     for p in products:
-        price = p.get("price_display", 0)
+        try:
+            price = float(p.get("price_display", 0) or 0)
+        except (TypeError, ValueError):
+            price = 0.0
         if price <= margin:
             log.append({
                 "product_name": p["name"], "product_source": p["source"],
@@ -192,35 +242,16 @@ async def _relevance_filter(
     names = [p["name"] for p in products]
     terms_str = ", ".join(search_terms)
 
-    prompt = f"""You are a strict product relevance checker for an e-commerce search.
-
-The user searched for: "{terms_str}"
-
-BRAND RULE (highest priority):
-- If the search query mentions a specific brand name (e.g., "Corsair", "Apple", "Samsung", "Sony", "Logitech", "HP", "Dell", etc.), then ONLY products from that exact brand are RELEVANT.
-- Products from any other brand MUST be marked irrelevant, even if they are the same product type.
-- Example: search "corsair gaming keyboard" → only Corsair keyboards are relevant; Logitech/Razer/HyperX keyboards are irrelevant.
-- Example: search "samsung monitor" → only Samsung monitors are relevant; LG/Dell/HP monitors are irrelevant.
-
-PRODUCT TYPE RULE (when no brand is specified):
-- If no specific brand is mentioned, check if the product is the correct product type.
-- Accessories, replacement parts, cases, or unrelated items are irrelevant.
-- Example: search "gaming keyboard" → any gaming keyboard is relevant; keyboard stands, keycaps, or mice are irrelevant.
-
-COMBINATION RULE:
-- For searches like "brand + product type": apply BOTH rules — must be the right brand AND the right product type.
-
-Products to evaluate (0-indexed):
-{json.dumps(names, indent=2)}
-
-Return ONLY a JSON array — one object per product, same order, no extra text:
-[
-  {{"name": "exact name", "relevant": true, "reason": "Corsair brand gaming keyboard matches search"}},
-  {{"name": "exact name", "relevant": false, "reason": "Razer brand — user specified Corsair"}}
-]
-"""
+    user_payload = (
+        f"User search terms: {terms_str}\n\n"
+        f"Products to evaluate (0-indexed):\n{json.dumps(names, indent=2)}\n\n"
+        "Return one verdict per product in the same order."
+    )
     try:
-        response = await active_llm.ainvoke([HumanMessage(content=prompt)])
+        response = await active_llm.ainvoke([
+            SystemMessage(content=_RELEVANCE_SYSTEM_PROMPT),
+            HumanMessage(content=user_payload),
+        ])
         raw = _clean_json(_extract_text(response.content))
         relevance_list = json.loads(raw)
     except Exception as exc:
@@ -276,24 +307,16 @@ async def _duplicate_filter(
     daraz_names = [d["name"][:80] for d in daraz[:20]]
     amazon_names = [a["name"][:80] for a in amazon[:20]]
 
-    prompt = f"""Compare these two product lists and find TRUE duplicates
-(exact same brand + model appearing on both platforms).
-
-Daraz (0-indexed):
-{json.dumps(daraz_names, indent=2)}
-
-Amazon (0-indexed):
-{json.dumps(amazon_names, indent=2)}
-
-Return ONLY a JSON array (empty [] if no duplicates). No extra text:
-[
-  {{"daraz_index": 0, "amazon_index": 2, "reason": "same ASUS TUF model"}}
-]
-
-Only flag EXACT matches (same brand AND model). Different brands are never duplicates.
-"""
+    user_payload = (
+        "Compare these lists and return TRUE duplicates.\n\n"
+        f"Daraz (0-indexed):\n{json.dumps(daraz_names, indent=2)}\n\n"
+        f"Amazon (0-indexed):\n{json.dumps(amazon_names, indent=2)}"
+    )
     try:
-        response = await active_llm.ainvoke([HumanMessage(content=prompt)])
+        response = await active_llm.ainvoke([
+            SystemMessage(content=_DUPLICATE_SYSTEM_PROMPT),
+            HumanMessage(content=user_payload),
+        ])
         raw = _clean_json(_extract_text(response.content))
         duplicates = json.loads(raw)
     except Exception as exc:
@@ -311,7 +334,16 @@ Only flag EXACT matches (same brand AND model). Different brands are never dupli
         if 0 <= di < len(daraz) and 0 <= ai < len(amazon):
             d_prod = daraz[di]
             a_prod = amazon[ai]
-            if d_prod["price_display"] <= a_prod["price_display"]:
+            try:
+                d_price = float(d_prod.get("price_display", 0) or 0)
+            except (TypeError, ValueError):
+                d_price = 0.0
+            try:
+                a_price = float(a_prod.get("price_display", 0) or 0)
+            except (TypeError, ValueError):
+                a_price = 0.0
+
+            if d_price <= a_price:
                 remove_ids.add(a_prod["id"])
                 kept, removed = d_prod, a_prod
             else:
@@ -352,6 +384,10 @@ async def filter_node(state: ShoppingState) -> dict:
     budget_currency = state.get("budget_currency", "PKR")
     display_currency = state.get("display_currency", "PKR")
     min_reviews = state.get("min_reviews", settings.DEFAULT_MIN_REVIEWS)
+    try:
+        min_reviews = int(min_reviews) if min_reviews is not None else settings.DEFAULT_MIN_REVIEWS
+    except (TypeError, ValueError):
+        min_reviews = settings.DEFAULT_MIN_REVIEWS
     search_terms = state.get("search_terms", [])
     model_name = state.get("model", "gemini-3-flash-preview")
     active_llm = _get_llm(model_name)

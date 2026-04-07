@@ -21,6 +21,27 @@ from graph.state import ShoppingState
 logger = logging.getLogger(__name__)
 
 
+def _build_query_candidates(search_terms: list[str], fallback_query: str = "") -> list[str]:
+    """Return ordered unique search terms for sequential scraping fallback."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    for term in search_terms:
+        clean = (term or "").strip()
+        if not clean:
+            continue
+        key = clean.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(clean)
+
+    if not candidates and fallback_query.strip():
+        candidates.append(fallback_query.strip())
+
+    return candidates
+
+
 async def scraper_node(state: ShoppingState) -> dict:
     """
     LangGraph node: scrapes both sources, normalises prices, saves to Supabase.
@@ -30,8 +51,8 @@ async def scraper_node(state: ShoppingState) -> dict:
     session_id = state.get("session_id", "")
     errors: list[str] = list(state.get("errors", []))
 
-    # Build a single search query string from parsed terms
-    search_query = " ".join(search_terms)
+    # Build ordered single-term candidates (try first; fallback only if needed)
+    query_candidates = _build_query_candidates(search_terms, state.get("user_query", ""))
 
     # --- 1. Fetch exchange rate ---
     exchange_rate_usd_to_pkr = 278.0
@@ -50,21 +71,31 @@ async def scraper_node(state: ShoppingState) -> dict:
 
     # --- 2. Scrape Daraz ---
     raw_daraz: list[dict] = []
-    try:
-        raw_daraz = await scrape_daraz_products(search_query, max_pages=1, enrich_top_n=5)
-        logger.info("Daraz returned %d raw products", len(raw_daraz))
-    except Exception as exc:
-        logger.error("Daraz scrape failed: %s", exc)
-        errors.append(f"Daraz scraper error: {exc}")
+    for i, candidate in enumerate(query_candidates):
+        try:
+            logger.info("Daraz attempt %d/%d with term: '%s'", i + 1, len(query_candidates), candidate)
+            raw_daraz = await scrape_daraz_products(candidate, max_pages=1, enrich_top_n=5)
+            logger.info("Daraz returned %d raw products for '%s'", len(raw_daraz), candidate)
+            if raw_daraz:
+                break
+        except Exception as exc:
+            logger.error("Daraz scrape failed for '%s': %s", candidate, exc)
+            if i == len(query_candidates) - 1:
+                errors.append(f"Daraz scraper error: {exc}")
 
     # --- 3. Scrape Amazon ---
     raw_amazon: list[dict] = []
-    try:
-        raw_amazon = await scrape_amazon_products(search_query, max_pages=1, enrich_top_n=5)
-        logger.info("Amazon returned %d raw products", len(raw_amazon))
-    except Exception as exc:
-        logger.error("Amazon scrape failed: %s", exc)
-        errors.append(f"Amazon scraper error: {exc}")
+    for i, candidate in enumerate(query_candidates):
+        try:
+            logger.info("Amazon attempt %d/%d with term: '%s'", i + 1, len(query_candidates), candidate)
+            raw_amazon = await scrape_amazon_products(candidate, max_pages=1, enrich_top_n=5)
+            logger.info("Amazon returned %d raw products for '%s'", len(raw_amazon), candidate)
+            if raw_amazon:
+                break
+        except Exception as exc:
+            logger.error("Amazon scrape failed for '%s': %s", candidate, exc)
+            if i == len(query_candidates) - 1:
+                errors.append(f"Amazon scraper error: {exc}")
 
     # If BOTH scrapers failed, bail early
     if not raw_daraz and not raw_amazon:

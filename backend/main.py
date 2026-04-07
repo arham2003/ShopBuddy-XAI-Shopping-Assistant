@@ -376,7 +376,7 @@ async def followup_endpoint(request: FollowUpRequest):
     model_name = request.model
 
     # --- Input gate for follow-up prompts as well ---
-    gate = await evaluate_input_gate(query, model_name)
+    gate = await evaluate_input_gate(query, model_name, is_followup=True)
     if not gate.get("allowed", False):
         async def _blocked_followup_stream():
             yield {

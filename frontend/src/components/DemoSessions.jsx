@@ -1,8 +1,8 @@
 /**
  * DemoSessions — shows quick-load demo buttons fetched from the backend.
  */
-import { useState, useEffect } from 'react';
-import { getDemoSessions } from '../services/api';
+import { useState, useEffect } from "react";
+import { getDemoSessions } from "../services/api";
 
 export default function DemoSessions({ onDemoClick }) {
   const [demos, setDemos] = useState([]);

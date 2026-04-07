@@ -1,21 +1,21 @@
 /**
  * SecondChanceShelf — shows excluded products grouped by filter reason.
  */
-import { useMemo } from 'react';
-import { FiExternalLink } from 'react-icons/fi';
-import { useCurrency } from '../contexts/CurrencyContext';
-import PlatformBadge from './PlatformBadge';
+import { useMemo } from "react";
+import { FiExternalLink } from "react-icons/fi";
+import { useCurrency } from "../contexts/CurrencyContext";
+import PlatformBadge from "./PlatformBadge";
 
 // Keys match the filter_name values emitted by filter_agent.py
 const REASON_GROUPS = {
-  budget: { label: '💰 Over Budget', icon: '💰' },
-  minimum_reviews: { label: '💬 Too Few Reviews', icon: '💬' },
-  relevance: { label: '🎯 Not Relevant to Search', icon: '🎯' },
-  duplicate: { label: '🔄 Duplicate Listing', icon: '🔄' },
+  budget: { label: "💰 Over Budget", icon: "💰" },
+  minimum_reviews: { label: "💬 Too Few Reviews", icon: "💬" },
+  relevance: { label: "🎯 Not Relevant to Search", icon: "🎯" },
+  duplicate: { label: "🔄 Duplicate Listing", icon: "🔄" },
 };
 
 // Display order — budget & reviews first, then relevance, then duplicates
-const GROUP_ORDER = ['budget', 'minimum_reviews', 'relevance', 'duplicate'];
+const GROUP_ORDER = ["budget", "minimum_reviews", "relevance", "duplicate"];
 
 export default function SecondChanceShelf({ products }) {
   const { formatPrice, displayCurrency } = useCurrency();
@@ -25,7 +25,7 @@ export default function SecondChanceShelf({ products }) {
     if (!products?.length) return {};
     const map = {};
     for (const p of products) {
-      const key = p.filter_name || 'other';
+      const key = p.filter_name || "other";
       if (!map[key]) map[key] = [];
       if (map[key].length < 5) map[key].push(p);
     }
@@ -55,7 +55,10 @@ export default function SecondChanceShelf({ products }) {
 
       <div className="space-y-6">
         {Object.entries(groups).map(([key, items]) => {
-          const group = REASON_GROUPS[key] || { label: `🔍 Other (${key})`, icon: '🔍' };
+          const group = REASON_GROUPS[key] || {
+            label: `🔍 Other (${key})`,
+            icon: "🔍",
+          };
           return (
             <div key={key} className="space-y-2">
               <h3 className="text-sm font-semibold font-lexend text-slate-700">
@@ -65,12 +68,12 @@ export default function SecondChanceShelf({ products }) {
                 {items.map((p) => (
                   <div
                     key={p.id}
-                    className="bg-white rounded-lg shadow-sm border border-slate-100 p-4 flex items-center justify-between gap-4"
+                    className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <PlatformBadge source={p.source} />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900 truncate">
+                        <p className="text-sm font-medium text-slate-900 line-clamp-2 sm:truncate">
                           {p.name}
                         </p>
                         <p className="text-red-600 text-xs mt-0.5">
@@ -78,15 +81,18 @@ export default function SecondChanceShelf({ products }) {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <span className="text-base font-semibold font-inter text-slate-900">
-                        {formatPrice(p.price_display, p.currency_display || displayCurrency)}
+                    <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0 pl-0 sm:pl-0">
+                      <span className="text-sm sm:text-base font-semibold text-slate-900">
+                        {formatPrice(
+                          p.price_display,
+                          p.currency_display || displayCurrency,
+                        )}
                       </span>
                       <a
                         href={p.product_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-blue-600 hover:text-blue-700 whitespace-nowrap flex items-center gap-1"
+                        className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 whitespace-nowrap flex items-center gap-1"
                         aria-label={`View ${p.name}`}
                       >
                         View anyway <FiExternalLink className="w-3 h-3" />

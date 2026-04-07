@@ -1,9 +1,10 @@
 /**
  * Dashboard — main page that orchestrates the search flow, SSE streaming, and result display.
  */
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useSearch } from "../contexts/SearchContext";
 import { useCurrency } from "../contexts/CurrencyContext";
+import { useHistory } from "../contexts/HistoryContext";
 import { searchProducts, resumeSearch, sendFollowUp } from "../services/api";
 import HeroSearch from "../components/HeroSearch";
 import DemoSessions from "../components/DemoSessions";
@@ -13,7 +14,7 @@ import ReviewInsights from "../components/ReviewInsights";
 import SecondChanceShelf from "../components/SecondChanceShelf";
 import FollowUpChat from "../components/FollowUpChat";
 
-export default function Dashboard() {
+export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
   const {
     loading,
     error,
@@ -38,7 +39,10 @@ export default function Dashboard() {
     setGateMessage,
   } = useSearch();
   const { displayCurrency, setExchangeRate } = useCurrency();
+  const { addToHistory, cacheResults, getCachedResults, deleteEntry } =
+    useHistory();
   const abortRef = useRef(null);
+  const queryRef = useRef(""); // stable ref so handleEvent closure always reads latest query
   const [selectedModel, setSelectedModel] = useState("gemini-3-flash-preview");
 
   // Common SSE event handler
@@ -55,11 +59,18 @@ export default function Dashboard() {
           break;
         case "complete":
           if (data.session_id) setThreadId(data.session_id);
-          // Update exchange rate if provided
           if (data.exchange_rate) {
             setExchangeRate((prev) => ({ ...prev, ...data.exchange_rate }));
           }
           applyResults(data);
+          {
+            const entryId = addToHistory({
+              query: queryRef.current,
+              currency: displayCurrency,
+              productCount: (data.ranked_products || []).length,
+            });
+            cacheResults(entryId, data);
+          }
           break;
         case "error":
           setError(data.error || "An unexpected error occurred");
@@ -87,6 +98,9 @@ export default function Dashboard() {
       applyResults,
       setError,
       setGateMessage,
+      addToHistory,
+      cacheResults,
+      displayCurrency,
     ],
   );
 
@@ -105,6 +119,7 @@ export default function Dashboard() {
       const m = model || selectedModel;
       setSelectedModel(m);
       setQuery(q);
+      queryRef.current = q;
       setGateMessage(null);
       startSearch();
       activateFirstStep();
@@ -127,6 +142,57 @@ export default function Dashboard() {
       setGateMessage,
     ],
   );
+
+  // Expose handleSearch to App via ref so HistorySidebar can re-trigger searches
+  useEffect(() => {
+    if (triggerSearchRef) triggerSearchRef.current = handleSearch;
+  }, [triggerSearchRef, handleSearch]);
+
+  // Restore cached results from a history entry (no backend call)
+  const restoreFromCache = useCallback(
+    (entry) => {
+      const cached = getCachedResults(entry.id);
+      if (!cached) {
+        // Cache miss — remove stale history entry
+        deleteEntry(entry.id);
+        return;
+      }
+      // Abort any in-flight search
+      if (abortRef.current) abortRef.current.abort();
+      // Clear transient UI state
+      setError(null);
+      setInterrupt(null);
+      setGateMessage(null);
+      setChatMessages([]);
+      // Set query
+      setQuery(entry.query);
+      queryRef.current = entry.query;
+      // Restore exchange rate if available
+      if (cached.data.exchange_rate) {
+        setExchangeRate((prev) => ({ ...prev, ...cached.data.exchange_rate }));
+      }
+      // Apply all result state (sets products, explanations, loading=false, steps=done)
+      applyResults(cached.data);
+      // Restore threadId so follow-up chat works on cached sessions
+      if (cached.data.session_id) setThreadId(cached.data.session_id);
+    },
+    [
+      getCachedResults,
+      deleteEntry,
+      setError,
+      setInterrupt,
+      setGateMessage,
+      setChatMessages,
+      setQuery,
+      setExchangeRate,
+      applyResults,
+      setThreadId,
+    ],
+  );
+
+  useEffect(() => {
+    if (restoreResultsRef) restoreResultsRef.current = restoreFromCache;
+  }, [restoreResultsRef, restoreFromCache]);
 
   // Demo click — just runs the query
   const handleDemoClick = useCallback(
@@ -238,7 +304,7 @@ export default function Dashboard() {
   const showActivity = loading && !interrupt;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-32 space-y-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 sm:pb-32 space-y-6 sm:space-y-8">
       {/* Hero search — always visible */}
       <HeroSearch
         onSearch={handleSearch}
@@ -310,6 +376,8 @@ export default function Dashboard() {
           messages={chatMessages}
           onSend={handleFollowUp}
           loading={followUpLoading}
+          model={selectedModel}
+          onModelChange={setSelectedModel}
         />
       )}
     </div>

@@ -51,7 +51,7 @@ function ProductCard({ product, badge }) {
 
       <div className="p-5 flex flex-col flex-grow">
         {/* Product image */}
-        <div className="bg-slate-50 rounded-lg h-48 flex items-center justify-center mb-4 overflow-hidden">
+        <div className="bg-slate-50 rounded-lg h-40 sm:h-48 flex items-center justify-center mb-3 sm:mb-4 overflow-hidden">
           {image_url ? (
             <img
               src={image_url}
