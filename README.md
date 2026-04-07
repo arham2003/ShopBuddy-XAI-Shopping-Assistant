@@ -55,3 +55,4 @@ This workflow has multiple specialized tasks that are easier, safer, and more re
 - Data Sources: Daraz scraper, Amazon scraper
 - APIs: Google GenAI API, Groq API, ExchangeRate-API
 - Database: Supabase Postgres
+
