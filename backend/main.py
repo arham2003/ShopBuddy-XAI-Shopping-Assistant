@@ -13,6 +13,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -31,6 +32,7 @@ from database import crud
 from database.models import SearchSession, Product
 from models.schemas import (
     SearchRequest,
+    QueryCancelRequest,
     FollowUpRequest,
     CurrencySwitchRequest,
     ExchangeRateInfo,
@@ -42,6 +44,31 @@ from graph.workflow import shopping_graph
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+ACTIVE_QUERY_TASKS: dict[str, asyncio.Task] = {}
+ACTIVE_QUERY_TASKS_LOCK = asyncio.Lock()
+
+
+async def _register_query_task(thread_id: str) -> None:
+    task = asyncio.current_task()
+    if task is None:
+        return
+    async with ACTIVE_QUERY_TASKS_LOCK:
+        ACTIVE_QUERY_TASKS[thread_id] = task
+
+
+async def _unregister_query_task(thread_id: str) -> None:
+    async with ACTIVE_QUERY_TASKS_LOCK:
+        ACTIVE_QUERY_TASKS.pop(thread_id, None)
+
+
+async def _cancel_query_task(thread_id: str) -> bool:
+    async with ACTIVE_QUERY_TASKS_LOCK:
+        task = ACTIVE_QUERY_TASKS.get(thread_id)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +237,7 @@ async def query_endpoint(request: SearchRequest):
         # Resuming from a keyword-confirmation interrupt
         async def _resume_stream():
             config = {"configurable": {"thread_id": thread_id}}
+            await _register_query_task(thread_id)
             try:
                 async for event in shopping_graph.astream_events(
                     Command(resume={"approved": approved}),
@@ -268,8 +296,13 @@ async def query_endpoint(request: SearchRequest):
                         "errors": final.values.get("errors", []),
                     }),
                 }
+            except asyncio.CancelledError:
+                logger.info("Query resume cancelled for thread_id=%s", thread_id)
+                raise
             except Exception as exc:
                 yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+            finally:
+                await _unregister_query_task(thread_id)
 
         return EventSourceResponse(_resume_stream())
 
@@ -314,8 +347,15 @@ async def query_endpoint(request: SearchRequest):
     async def _live_stream():
         config = {"configurable": {"thread_id": thread_id}}
         initial_state = _build_initial_state(query, display_currency, model)
+        await _register_query_task(thread_id)
 
         try:
+            # Emit thread id early so the frontend can issue an explicit cancel.
+            yield {
+                "event": "started",
+                "data": json.dumps({"thread_id": thread_id}),
+            }
+
             # Phase 1: run until the interrupt (keyword confirmation)
             async for event in shopping_graph.astream_events(
                 initial_state, config=config, version="v2",
@@ -354,11 +394,25 @@ async def query_endpoint(request: SearchRequest):
                     }),
                 }
 
+        except asyncio.CancelledError:
+            logger.info("Live query cancelled for thread_id=%s", thread_id)
+            raise
         except Exception as exc:
             logger.error("Pipeline error: %s", exc)
             yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+        finally:
+            await _unregister_query_task(thread_id)
 
     return EventSourceResponse(_live_stream())
+
+
+# ---------------------------------------------------------------------------
+# POST /api/query/cancel — Explicitly cancel an in-flight query stream
+# ---------------------------------------------------------------------------
+@app.post("/api/query/cancel")
+async def cancel_query_endpoint(request: QueryCancelRequest):
+    cancelled = await _cancel_query_task(request.thread_id)
+    return {"thread_id": request.thread_id, "cancelled": cancelled}
 
 
 # ---------------------------------------------------------------------------

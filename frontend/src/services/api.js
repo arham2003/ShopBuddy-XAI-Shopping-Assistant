@@ -27,6 +27,13 @@ export async function getDemoSessions() {
   return data;
 }
 
+export async function cancelQuery(threadId) {
+  const { data } = await client.post("/api/query/cancel", {
+    thread_id: threadId,
+  });
+  return data;
+}
+
 // ── SSE streaming helper ─────────────────────────────────
 // /api/query and /api/followup are POST endpoints that return SSE,
 // so we use fetch + ReadableStream instead of EventSource (GET-only).

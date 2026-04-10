@@ -5,7 +5,12 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useSearch } from "../contexts/SearchContext";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useHistory } from "../contexts/HistoryContext";
-import { searchProducts, resumeSearch, sendFollowUp } from "../services/api";
+import {
+  searchProducts,
+  resumeSearch,
+  sendFollowUp,
+  cancelQuery,
+} from "../services/api";
 import HeroSearch from "../components/HeroSearch";
 import DemoSessions from "../components/DemoSessions";
 import AgentActivityFeed from "../components/AgentActivityFeed";
@@ -42,22 +47,34 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
   const { addToHistory, cacheResults, getCachedResults, deleteEntry } =
     useHistory();
   const abortRef = useRef(null);
+  const stopRequestedRef = useRef(false);
+  const activeRequestIdRef = useRef(0);
   const queryRef = useRef(""); // stable ref so handleEvent closure always reads latest query
   const [selectedModel, setSelectedModel] = useState("gemini-3-flash-preview");
+  const [searchInProgress, setSearchInProgress] = useState(false);
 
   // Common SSE event handler
   const handleEvent = useCallback(
-    (eventType, data) => {
+    (eventType, data, requestId) => {
+      if (requestId !== activeRequestIdRef.current) return;
+
       switch (eventType) {
         case "step_complete":
           completeStep(data.step);
           break;
+        case "started":
+          setSearchInProgress(true);
+          if (data.thread_id) setThreadId(data.thread_id);
+          break;
         case "interrupt":
+          stopRequestedRef.current = false;
           setThreadId(data.thread_id);
           setInterrupt(data);
           setLoading(false);
           break;
         case "complete":
+          stopRequestedRef.current = false;
+          setSearchInProgress(false);
           if (data.session_id) setThreadId(data.session_id);
           if (data.exchange_rate) {
             setExchangeRate((prev) => ({ ...prev, ...data.exchange_rate }));
@@ -73,10 +90,21 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
           }
           break;
         case "error":
+          stopRequestedRef.current = false;
+          setSearchInProgress(false);
           setError(data.error || "An unexpected error occurred");
           setLoading(false);
           break;
         case "blocked":
+          if (stopRequestedRef.current) {
+            setSearchInProgress(false);
+            setGateMessage("Query search cancelled.");
+            setError(null);
+            setInterrupt(null);
+            setLoading(false);
+            break;
+          }
+          setSearchInProgress(false);
           setGateMessage(
             data.message ||
               "I can't help with running commands or installing packages. I can help you find products. Try: 'wireless keyboard under $50'.",
@@ -105,30 +133,38 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
   );
 
   const handleError = useCallback(
-    (err) => {
+    (err, requestId) => {
+      if (requestId !== activeRequestIdRef.current) return;
+
       setError(err.message || "Connection error");
+      setSearchInProgress(false);
       setLoading(false);
     },
-    [setError, setLoading],
+    [setError, setLoading, setSearchInProgress],
   );
 
   // Start a new search
   const handleSearch = useCallback(
     (q, model) => {
       if (abortRef.current) abortRef.current.abort();
+      const requestId = activeRequestIdRef.current + 1;
+      activeRequestIdRef.current = requestId;
+      stopRequestedRef.current = false;
       const m = model || selectedModel;
       setSelectedModel(m);
+      setThreadId(null);
       setQuery(q);
       queryRef.current = q;
       setGateMessage(null);
+      setSearchInProgress(true);
       startSearch();
       activateFirstStep();
       abortRef.current = searchProducts(
         q,
         displayCurrency,
         m,
-        handleEvent,
-        handleError,
+        (eventType, data) => handleEvent(eventType, data, requestId),
+        (err) => handleError(err, requestId),
       );
     },
     [
@@ -140,8 +176,34 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
       activateFirstStep,
       setQuery,
       setGateMessage,
+      setThreadId,
+      setSearchInProgress,
     ],
   );
+
+  const handleStopSearch = useCallback(async () => {
+    stopRequestedRef.current = true;
+    activeRequestIdRef.current += 1;
+
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+
+    setError(null);
+    setInterrupt(null);
+    setGateMessage("Query search cancelled.");
+    setSearchInProgress(false);
+    setLoading(false);
+
+    if (threadId) {
+      try {
+        await cancelQuery(threadId);
+      } catch {
+        // The stream is already aborted client-side; backend cancel can fail safely.
+      }
+    }
+  }, [threadId, setLoading, setSearchInProgress]);
 
   // Expose handleSearch to App via ref so HistorySidebar can re-trigger searches
   useEffect(() => {
@@ -151,6 +213,7 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
   // Restore cached results from a history entry (no backend call)
   const restoreFromCache = useCallback(
     (entry) => {
+      activeRequestIdRef.current += 1;
       const cached = getCachedResults(entry.id);
       if (!cached) {
         // Cache miss — remove stale history entry
@@ -163,6 +226,7 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
       setError(null);
       setInterrupt(null);
       setGateMessage(null);
+      setSearchInProgress(false);
       setChatMessages([]);
       // Set query
       setQuery(entry.query);
@@ -187,6 +251,7 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
       setExchangeRate,
       applyResults,
       setThreadId,
+      setSearchInProgress,
     ],
   );
 
@@ -205,8 +270,11 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
   // Confirm keywords (resume from interrupt)
   const handleConfirm = useCallback(() => {
     if (!interrupt?.thread_id) return;
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
     setInterrupt(null);
     setLoading(true);
+    setSearchInProgress(true);
     activateFirstStep();
     // Complete supervisor since we're past it
     completeStep("supervisor");
@@ -216,8 +284,8 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
       true,
       displayCurrency,
       selectedModel,
-      handleEvent,
-      handleError,
+      (eventType, data) => handleEvent(eventType, data, requestId),
+      (err) => handleError(err, requestId),
     );
   }, [
     interrupt,
@@ -228,6 +296,7 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
     handleError,
     setInterrupt,
     setLoading,
+    setSearchInProgress,
     activateFirstStep,
     completeStep,
   ]);
@@ -302,16 +371,32 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
 
   const hasResults = rankedProducts.length > 0;
   const showActivity = loading && !interrupt;
+  const hasActiveQuery = Boolean(query?.trim());
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 sm:pb-32 space-y-6 sm:space-y-8">
+    <div
+      className={`max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 sm:pb-32 min-h-screen ${
+        hasActiveQuery ? "space-y-4 sm:space-y-6" : "space-y-6 sm:space-y-8"
+      }`}
+    >
       {/* Hero search — always visible */}
-      <HeroSearch
-        onSearch={handleSearch}
-        onConfirm={handleConfirm}
-        onEdit={handleEditKeywords}
-        interrupt={interrupt}
-      />
+      <div
+        className={`[&>div]:transition-all [&>div]:duration-700 [&>div]:ease-out [&>div>h1]:transition-all [&>div>h1]:duration-500 [&>div>h1]:ease-out [&>div>h1]:max-h-24 [&>div>p]:transition-all [&>div>p]:duration-500 [&>div>p]:ease-out [&>div>p]:max-h-20 ${
+          hasActiveQuery
+            ? "[&>div]:py-2 [&>div]:sm:py-3 [&>div]:space-y-3 [&>div]:sm:space-y-4 [&>div]:-translate-y-6 [&>div]:sm:-translate-y-8 [&>div>h1]:opacity-0 [&>div>h1]:-translate-y-5 [&>div>h1]:max-h-0 [&>div>h1]:overflow-hidden [&>div>h1]:pointer-events-none [&>div>p]:opacity-0 [&>div>p]:-translate-y-5 [&>div>p]:max-h-0 [&>div>p]:overflow-hidden [&>div>p]:pointer-events-none"
+            : "[&>div]:translate-y-0"
+        }`}
+      >
+        <HeroSearch
+          onSearch={handleSearch}
+          onConfirm={handleConfirm}
+          onEdit={handleEditKeywords}
+          interrupt={interrupt}
+          loading={searchInProgress}
+          hasActiveQuery={hasActiveQuery}
+          onStop={handleStopSearch}
+        />
+      </div>
 
       {/* Demo sessions — only before search results */}
       {!hasResults && !loading && !interrupt && (

@@ -15,7 +15,7 @@ const SearchContext = createContext(null);
 const INITIAL_STEPS = [
   {
     key: "supervisor",
-    label: "Query Interpreter Agent: understanding your shopping intent...",
+    label: "Query Interpreter: understanding your shopping intent...",
     icon: "🔍",
     status: "pending",
   },
@@ -40,13 +40,13 @@ const INITIAL_STEPS = [
   },
   {
     key: "reviewer",
-    label: "Review Analyst Agent: summarizing customer feedback...",
+    label: "Product Reviews Analyst: summarizing customer feedback...",
     icon: "💬",
     status: "pending",
   },
   {
     key: "explainer",
-    label: "Explainability Narrator Agent: writing plain-English reasoning...",
+    label: "Explainability Narrator: writing plain-English reasoning...",
     icon: "💡",
     status: "pending",
   },

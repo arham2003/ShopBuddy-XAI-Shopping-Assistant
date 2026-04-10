@@ -1,8 +1,6 @@
 ## ShopBuddy
 
 **Team:** Muhammad Arham Hussain Khan, Partham Kumar (GrayCoders)
-**Theme & Challenge:** Theme 7 — Open Innovation
-**Track:** Open Innovation
 
 ### Problem statement
 
@@ -25,7 +23,9 @@ This workflow has multiple specialized tasks that are easier, safer, and more re
 | Review Analyst Agent (Reviewer)           | Summarizes customer review sentiment, themes, and trust signals for top products.               |
 | Explainability Narrator Agent (Explainer) | Generates plain-English transparency reports and per-product recommendation reasoning.          |
 
-**State Graph Visualization:** [workflow_diagram.png](graph_output/workflow_diagram.png)
+**State Graph Visualization:**
+
+![Workflow Diagram](graph_output/workflow_diagram.png)
 
 ### How to run
 

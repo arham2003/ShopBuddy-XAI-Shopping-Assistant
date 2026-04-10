@@ -108,6 +108,10 @@ class SearchRequest(BaseModel):
     approved: bool | None = None                # True/False to approve/reject interrupt
 
 
+class QueryCancelRequest(BaseModel):
+    thread_id: str
+
+
 class FollowUpRequest(BaseModel):
     thread_id: str
     query: str

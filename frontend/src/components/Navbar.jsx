@@ -69,7 +69,7 @@ export default function Navbar() {
           <div className="font-lexend text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-1.5 sm:gap-2">
             <span>🛒</span>
             <span>
-              Shop<span className="text-purple-600">Buddy</span>
+              Shop<span className="text-blue-700">Buddy</span>
             </span>
           </div>
         </div>

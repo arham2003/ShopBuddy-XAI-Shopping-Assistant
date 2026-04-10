@@ -1,8 +1,8 @@
 /**
  * HeroSearch — large centered search input with model selector, keyword confirmation, and suggestion chips.
  */
-import { useState } from "react";
-import { FiSearch, FiChevronDown, FiCheck } from "react-icons/fi";
+import { useEffect, useState } from "react";
+import { FiSearch, FiChevronDown, FiCheck, FiSquare } from "react-icons/fi";
 import { TypingAnimation } from "@/components/ui/typing-animation";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import {
@@ -25,17 +25,73 @@ const MODEL_OPTIONS = [
   { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B" },
 ];
 
-export default function HeroSearch({ onSearch, onConfirm, onEdit, interrupt }) {
+function ProgressiveSuggestionText({ text, startDelay = 0 }) {
+  const [visibleWordCount, setVisibleWordCount] = useState(0);
+  const words = text.split(" ");
+
+  useEffect(() => {
+    setVisibleWordCount(0);
+    let intervalId;
+    const timeoutId = setTimeout(() => {
+      setVisibleWordCount(1);
+      intervalId = setInterval(() => {
+        setVisibleWordCount((prev) => {
+          if (prev >= words.length) {
+            clearInterval(intervalId);
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, 240);
+    }, startDelay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [text, startDelay, words.length]);
+
+  return (
+    <span className="inline-flex flex-wrap items-center justify-center">
+      {words.map((word, idx) => (
+        <span
+          key={`${word}-${idx}`}
+          className={`inline-block mr-1 last:mr-0 transition-all duration-300 ${
+            idx < visibleWordCount
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 translate-y-0.5"
+          }`}
+        >
+          {word}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+export default function HeroSearch({
+  onSearch,
+  onConfirm,
+  onEdit,
+  interrupt,
+  loading = false,
+  hasActiveQuery = false,
+  onStop,
+}) {
   const [input, setInput] = useState("");
   const [model, setModel] = useState("gemini-3-flash-preview");
   const [editingKeywords, setEditingKeywords] = useState(false);
   const [editedKeywords, setEditedKeywords] = useState("");
-  const isSearchDisabled = !input.trim();
+  const isSearchDisabled = !loading && !input.trim();
   const selectedModel =
     MODEL_OPTIONS.find((option) => option.value === model) || MODEL_OPTIONS[0];
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (loading) {
+      onStop?.();
+      return;
+    }
     if (!input.trim()) return;
     onSearch(input.trim(), model);
   };
@@ -72,7 +128,9 @@ export default function HeroSearch({ onSearch, onConfirm, onEdit, interrupt }) {
       </TypingAnimation>
       <p className="text-slate-500 text-xs sm:text-sm max-w-3xl mx-auto">
         We search and compare Daraz.pk &amp; Amazon, explain every
-        recommendation,<br className="hidden sm:inline" /> and show you what the AI filtered out.
+        recommendation,
+        <br className="hidden sm:inline" /> and show you what the AI filtered
+        out.
       </p>
 
       {/* Search bar */}
@@ -101,7 +159,11 @@ export default function HeroSearch({ onSearch, onConfirm, onEdit, interrupt }) {
               <span className="truncate">{selectedModel.label}</span>
               <FiChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-500" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8} className="w-48 sm:w-56">
+            <DropdownMenuContent
+              align="end"
+              sideOffset={8}
+              className="w-48 sm:w-56"
+            >
               {MODEL_OPTIONS.map((option) => (
                 <DropdownMenuItem
                   key={option.value}
@@ -117,16 +179,29 @@ export default function HeroSearch({ onSearch, onConfirm, onEdit, interrupt }) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <ShimmerButton
-          type="submit"
-          disabled={isSearchDisabled}
-          aria-label="Search"
-          background="#2563eb"
-          shimmerColor="#c7d2fe"
-          className="h-12 sm:h-14 w-auto sm:min-w-[130px] self-center sm:self-stretch px-8 sm:px-0 rounded-xl text-sm sm:text-base font-semibold disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100 disabled:hover:translate-y-0"
-        >
-          <span className="relative z-10">Search</span>
-        </ShimmerButton>
+        {loading ? (
+          <button
+            type="button"
+            onClick={() => onStop?.()}
+            className="h-8 w-8 sm:h-9 sm:w-9 self-center rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-all duration-200"
+            aria-label="Stop search"
+          >
+            <span className="inline-flex items-center justify-center">
+              <FiSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+            </span>
+          </button>
+        ) : (
+          <ShimmerButton
+            type="submit"
+            disabled={isSearchDisabled}
+            aria-label="Search"
+            background="#2563eb"
+            shimmerColor="#c7d2fe"
+            className="h-12 sm:h-14 w-auto sm:min-w-[130px] self-center sm:self-stretch px-8 sm:px-0 rounded-xl text-sm sm:text-base font-semibold disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100 disabled:hover:translate-y-0"
+          >
+            <span className="relative z-10">Search</span>
+          </ShimmerButton>
+        )}
       </form>
 
       {/* Keyword confirmation step */}
@@ -202,16 +277,19 @@ export default function HeroSearch({ onSearch, onConfirm, onEdit, interrupt }) {
       )}
 
       {/* Suggestion chips */}
-      {!interrupt && (
+      {!interrupt && !hasActiveQuery && (
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {SUGGESTIONS.map((s) => (
+          {SUGGESTIONS.map((s, idx) => (
             <button
               key={s}
               onClick={() => handleChip(s)}
               className="bg-slate-100 text-slate-600 rounded-full px-4 py-1.5 text-sm hover:bg-blue-50 hover:text-blue-600 cursor-pointer transition-all duration-200"
               aria-label={`Search for ${s}`}
             >
-              {s}
+              <ProgressiveSuggestionText
+                text={s}
+                startDelay={180 + idx * 320}
+              />
             </button>
           ))}
         </div>
