@@ -128,10 +128,9 @@ async def scraper_node(state: ShoppingState) -> dict:
 
     # --- 5. Normalise prices to display currency ---
     try:
-        async with async_session_maker() as db:
-            all_products = await normalize_product_prices(
-                all_products, display_currency, db
-            )
+        all_products = normalize_product_prices(
+            all_products, display_currency, exchange_rate_usd_to_pkr
+        )
     except Exception as exc:
         logger.error("Price normalisation failed: %s", exc)
         errors.append(f"Price normalisation error: {exc}")

@@ -19,7 +19,7 @@ import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,9 +93,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import os
+
+allowed_origins_str = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,https://xai-shopping-agent.vercel.app")
+allowed_origins = [o.strip() for o in allowed_origins_str.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -154,8 +159,6 @@ def _product_to_dict(p: Product) -> dict:
         "review_count": p.review_count,
         "product_url": p.product_url,
         "image_url": p.image_url,
-        "discount_percentage": p.discount_percentage,
-        "brand": p.brand,
         "value_score": p.value_score,
         "recommendation_badge": p.recommendation_badge,
         "reasoning_chain": p.reasoning_chain,
@@ -211,7 +214,7 @@ async def _load_demo_result(session: SearchSession, db: AsyncSession) -> dict:
 # POST /api/query — New search or resume from interrupt
 # ---------------------------------------------------------------------------
 @app.post("/api/query")
-async def query_endpoint(request: SearchRequest):
+async def query_endpoint(body: SearchRequest, request: Request):
     """
     Accepts a search query and streams SSE events as the pipeline progresses.
 
@@ -224,14 +227,31 @@ async def query_endpoint(request: SearchRequest):
       - thread_id: str | None (to resume from interrupt)
       - approved: bool | None (to approve/reject interrupt)
     """
-    query = request.query.strip()
-    display_currency = request.display_currency
-    model = request.model
+    query = body.query.strip()
+    display_currency = body.display_currency
+    model = body.model
+
+    default_ip = request.client.host if request.client else "127.0.0.1"
+    client_ip = request.headers.get("X-Forwarded-For", default_ip).split(",")[0].strip()
+    EXEMPT_IPS = {"127.0.0.1", "localhost", "202.47.33.37", "192.168.18.154", "::1"}
 
     # --- Check for thread_id and approved fields (resume from interrupt) ---
-    body = request.model_dump()
-    thread_id = body.get("thread_id")
-    approved = body.get("approved")
+    body_dump = body.model_dump()
+    thread_id = body_dump.get("thread_id")
+    approved = body_dump.get("approved")
+
+    if thread_id is None:
+        if client_ip not in EXEMPT_IPS:
+            async with async_session_maker() as db:
+                from database.crud import get_ip_usage
+                usage = await get_ip_usage(db, client_ip)
+                if usage.queries_used >= 1:
+                    async def _limit_stream():
+                        yield {
+                            "event": "limit_reached",
+                            "data": json.dumps({"message": "Free limit reached."})
+                        }
+                    return EventSourceResponse(_limit_stream())
 
     if thread_id is not None and approved is not None:
         # Resuming from a keyword-confirmation interrupt
@@ -298,9 +318,18 @@ async def query_endpoint(request: SearchRequest):
                 }
             except asyncio.CancelledError:
                 logger.info("Query resume cancelled for thread_id=%s", thread_id)
+                if client_ip not in EXEMPT_IPS:
+                    async with async_session_maker() as db:
+                        from database.crud import reset_ip_usage
+                        await reset_ip_usage(db, client_ip)
                 raise
             except Exception as exc:
-                yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+                if client_ip not in EXEMPT_IPS:
+                    async with async_session_maker() as db:
+                        from database.crud import reset_ip_usage
+                        await reset_ip_usage(db, client_ip)
+                logger.error("Resume error: %s", exc)
+                yield {"event": "error", "data": json.dumps({"error": "An internal server error occurred while processing your request."})}
             finally:
                 await _unregister_query_task(thread_id)
 
@@ -350,6 +379,11 @@ async def query_endpoint(request: SearchRequest):
         await _register_query_task(thread_id)
 
         try:
+            if client_ip not in EXEMPT_IPS:
+                async with async_session_maker() as db:
+                    from database.crud import increment_ip_usage
+                    await increment_ip_usage(db, client_ip)
+
             # Emit thread id early so the frontend can issue an explicit cancel.
             yield {
                 "event": "started",
@@ -396,10 +430,18 @@ async def query_endpoint(request: SearchRequest):
 
         except asyncio.CancelledError:
             logger.info("Live query cancelled for thread_id=%s", thread_id)
+            if client_ip not in EXEMPT_IPS:
+                async with async_session_maker() as db:
+                    from database.crud import reset_ip_usage
+                    await reset_ip_usage(db, client_ip)
             raise
         except Exception as exc:
             logger.error("Pipeline error: %s", exc)
-            yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+            if client_ip not in EXEMPT_IPS:
+                async with async_session_maker() as db:
+                    from database.crud import reset_ip_usage
+                    await reset_ip_usage(db, client_ip)
+            yield {"event": "error", "data": json.dumps({"error": "An internal server error occurred while processing your request."})}
         finally:
             await _unregister_query_task(thread_id)
 
@@ -464,7 +506,6 @@ async def followup_endpoint(request: FollowUpRequest):
                     f"  Rating: {p.rating}/5, Reviews: {p.review_count}\n"
                     f"  Badge: {p.recommendation_badge or 'none'}\n"
                     f"  Value Score: {p.value_score or 0:.4f}\n"
-                    f"  Brand: {p.brand or 'Unknown'}"
                 )
                 if p.reasoning_chain:
                     reasons = p.reasoning_chain if isinstance(p.reasoning_chain, list) else []
@@ -516,7 +557,7 @@ Answer the question clearly and concisely based on the product data above. Refer
 
         except Exception as exc:
             logger.error("Follow-up error: %s", exc)
-            yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+            yield {"event": "error", "data": json.dumps({"error": "An internal server error occurred while processing your request."})}
 
     return EventSourceResponse(_followup_stream())
 
@@ -599,6 +640,24 @@ async def get_exchange_rate_endpoint(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # GET /api/demo-sessions — List pre-seeded demo sessions
 # ---------------------------------------------------------------------------
+@app.get("/api/usage")
+async def get_usage(request: Request):
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(",")[0].strip()
+    EXEMPT_IPS = {"127.0.0.1", "localhost", "202.47.33.37", "192.168.18.154", "::1"}
+    
+    if client_ip in EXEMPT_IPS:
+        return {"limit_left": 9999}
+    
+    try:
+        async with async_session_maker() as db:
+            from database.crud import get_ip_usage
+            usage = await get_ip_usage(db, client_ip)
+            return {"limit_left": max(0, 1 - usage.queries_used)}
+    except Exception as exc:
+        logger.error("Failed to get IP usage: %s", exc)
+        return {"limit_left": 0}
+
+
 @app.get("/api/demo-sessions")
 async def get_demo_sessions_endpoint(db: AsyncSession = Depends(get_db)):
     """Return all sessions flagged as demo for the 'Try a demo' UI."""
@@ -633,9 +692,6 @@ async def seed_demo_endpoint():
     }
 
 
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "ShopBuddy"}

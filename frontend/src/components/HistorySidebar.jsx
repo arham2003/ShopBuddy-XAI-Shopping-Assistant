@@ -11,6 +11,9 @@ import { useHistory } from "../contexts/HistoryContext";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useSearch } from "../contexts/SearchContext";
 
+import { useState, useEffect } from "react";
+import { getIPUsage } from "../services/api";
+
 function formatRelativeDate(timestamp) {
   const diffMs = Date.now() - timestamp;
   const diffH = diffMs / (1000 * 60 * 60);
@@ -34,6 +37,13 @@ export default function HistorySidebar({ onHistoryClick }) {
     switching,
   } = useCurrency();
   const { threadId, updateProducts } = useSearch();
+  const [limitLeft, setLimitLeft] = useState(null);
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      getIPUsage().then((res) => setLimitLeft(res.limit_left)).catch(console.error);
+    }
+  }, [sidebarOpen]);
 
   const handleCurrencyToggle = async (currency) => {
     if (currency === displayCurrency || switching) return;
@@ -203,14 +213,19 @@ export default function HistorySidebar({ onHistoryClick }) {
         </div>
 
         {/* Footer */}
-        {history.length > 0 && (
-          <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0">
+        <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0 flex flex-col gap-1 items-center">
+          {history.length > 0 && (
             <p className="text-xs text-slate-400 text-center">
               {history.length} search{history.length !== 1 ? "es" : ""} &middot;
               expires after 7 days
             </p>
-          </div>
-        )}
+          )}
+          {limitLeft !== null && limitLeft < 100 && (
+            <p className="text-xs font-semibold text-purple-600 text-center">
+              Free searches left: {limitLeft}
+            </p>
+          )}
+        </div>
       </motion.aside>
     </>
   );

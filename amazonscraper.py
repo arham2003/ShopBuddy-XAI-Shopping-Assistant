@@ -264,14 +264,6 @@ class AmazonSearchResult(BaseModel):
 
 BROWSER_IMPERSONATIONS = [
     "chrome120",
-    "chrome119",
-    "chrome116",
-    "chrome110",
-    "chrome107",
-    "chrome104",
-    "chrome101",
-    "chrome100",
-    "chrome99",
 ]
 
 

@@ -72,7 +72,5 @@ def map_daraz_product(item: dict) -> dict:
         "review_count": int(item.get("review_count", 0)),
         "product_url": item.get("product_url", ""),
         "image_url": item.get("image_url", ""),
-        "discount_percentage": float(item.get("discount_percentage", 0) or 0),
-        "brand": item.get("brand") or "Unknown",
         "filter_status": "included",
     }

@@ -1,10 +1,8 @@
 ## ShopBuddy
 
-**Team:** Muhammad Arham Hussain Khan, Partham Kumar (GrayCoders)
-
 ### Problem statement
 
-Online shopping decisions are often opaque: users do not know why certain products were selected, filtered out, or ranked higher than others. **ShopBuddy** solves this by providing transparent, step-by-step AI reasoning while comparing products across platforms and normalizing prices across currencies.
+Online shopping decisions are opaque. **ShopBuddy** solves this by providing transparent reasoning.
 
 ### Why multi-agent?
 
@@ -42,16 +40,13 @@ This workflow has multiple specialized tasks that are easier, safer, and more re
    - `npm run dev`
 4. Open the frontend URL shown by Vite (usually `http://localhost:5173`).
 
-### Demo
-
-[[Demo Video Link](https://drive.google.com/drive/folders/1VU_gfrBKLmZngQIfEvx8MrEE9Ux45Imr?usp=sharing)]
 
 ### Tech stack
 
 - Languages: Python, JavaScript (React)
 - Backend: FastAPI, LangGraph, LangChain, SQLAlchemy
 - Frontend: React, Vite, Tailwind CSS, shadcn/magicui components
-- Models: Gemini 3 Flash, Llama 3.3 70B (Groq), Llama 3.1 8B (Groq)
+- Models: Gemini 3 Flash, OpenAI gpt oss 20B
 - Data Sources: Daraz scraper, Amazon scraper
 - APIs: Google GenAI API, Groq API, ExchangeRate-API
 - Database: Supabase Postgres

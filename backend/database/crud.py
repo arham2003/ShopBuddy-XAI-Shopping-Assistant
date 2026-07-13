@@ -86,8 +86,6 @@ async def save_products(
             review_count=p.get("review_count", 0),
             product_url=p.get("product_url", ""),
             image_url=p.get("image_url", ""),
-            discount_percentage=p.get("discount_percentage"),
-            brand=p.get("brand"),
             value_score=p.get("value_score"),
             recommendation_badge=p.get("recommendation_badge"),
             reasoning_chain=p.get("reasoning_chain"),

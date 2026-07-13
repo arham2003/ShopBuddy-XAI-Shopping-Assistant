@@ -117,8 +117,7 @@ function renderInline(text) {
 
 const MODEL_OPTIONS = [
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
-  { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B" },
-  { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B (fast)" },
+  { value: "openai/gpt-oss-20b", label: "GPT OSS 20B" },
 ];
 
 /** Compact model picker used in both panel and fullscreen headers */

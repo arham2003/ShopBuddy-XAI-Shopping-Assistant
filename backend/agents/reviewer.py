@@ -36,14 +36,14 @@ llm = ChatGoogleGenerativeAI(
 )
 
 llm_llama70b = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="openai/gpt-oss-20b",
     temperature=1.0,
-    max_tokens=32768,
+    max_tokens=11000,
     groq_api_key=settings.GROQ_API_KEY,
 )
 
 llm_llama8b = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="openai/gpt-oss-20b",
     temperature=1.0,
     max_tokens=128000,
     groq_api_key=settings.GROQ_API_KEY,
@@ -52,9 +52,9 @@ llm_llama8b = ChatGroq(
 
 def _get_llm(model_name: str):
     """Return the LLM instance matching the requested model name."""
-    if model_name == "llama-3.3-70b-versatile":
+    if model_name == "openai/gpt-oss-20b":
         return llm_llama70b
-    if model_name == "llama-3.1-8b-instant":
+    if model_name == "openai/gpt-oss-20b":
         return llm_llama8b
     return llm
 
@@ -88,21 +88,27 @@ def _clean_json(text: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM review analysis
 # ---------------------------------------------------------------------------
-async def _analyze_reviews_with_llm(product_name: str, review_text: str, active_llm=None) -> dict:
-    """Send review text to the LLM for structured sentiment analysis."""
-    prompt = f"""Analyze these customer reviews for "{product_name}".
+async def _batch_analyze_reviews_with_llm(products_data: list[dict], active_llm=None) -> dict:
+    """Send review text for multiple products to the LLM for structured sentiment analysis."""
+    if not products_data:
+        return {}
 
-Reviews:
-{review_text[:3000]}
+    prompt = "Analyze customer reviews for the following products.\n\n"
+    for item in products_data:
+        prompt += f"Product: {item['product_name']}\nReviews:\n{item['review_text'][:2500]}\n\n"
 
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "sentiment_score": 0.75,
-  "positive_themes": ["good battery life", "easy to use"],
-  "negative_themes": ["expensive"],
-  "review_summary": "Two-sentence summary of customer experience.",
-  "trust_score": 0.8
-}}
+    prompt += """
+Return ONLY valid JSON (no markdown, no explanation) mapping each EXACT product name to its analysis:
+{
+  "exact product name 1": {
+      "sentiment_score": 0.75,
+      "positive_themes": ["good battery life", "easy to use"],
+      "negative_themes": ["expensive"],
+      "review_summary": "Two-sentence summary of customer experience.",
+      "trust_score": 0.8
+  },
+  "exact product name 2": { ... }
+}
 
 Guidelines:
 - sentiment_score: 0.0 (very negative) to 1.0 (very positive)
@@ -116,14 +122,8 @@ Guidelines:
         raw = _clean_json(_extract_text(response.content))
         return json.loads(raw)
     except Exception as exc:
-        logger.warning("Review LLM analysis failed for '%s': %s", product_name, exc)
-        return {
-            "sentiment_score": compute_basic_sentiment(review_text),
-            "positive_themes": [],
-            "negative_themes": [],
-            "review_summary": "Automated review analysis unavailable.",
-            "trust_score": 0.5,
-        }
+        logger.warning("Batch review LLM analysis failed: %s", exc)
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -141,19 +141,24 @@ async def reviewer_node(state: ShoppingState) -> dict:
     errors: list[str] = list(state.get("errors", []))
 
     review_insights: dict[str, dict] = {}
-
+    
+    # Filter products that actually have reviews
+    products_to_analyze = []
     for product in ranked[:TOP_N]:
         pid = product.get("id", "")
         pname = product.get("name", "Unknown")
-
-        # Look up pre-extracted reviews by product name
         reviews = product_reviews.get(pname.lower(), [])
-
+        
         if reviews:
             review_text = "\n---\n".join(r["text"] for r in reviews)
-            insight = await _analyze_reviews_with_llm(pname, review_text, active_llm)
+            products_to_analyze.append({
+                "product_id": pid,
+                "product_name": pname,
+                "review_text": review_text
+            })
         else:
-            insight = {
+            review_insights[pid] = {
+                "product_id": pid,
                 "sentiment_score": 0.5,
                 "positive_themes": [],
                 "negative_themes": [],
@@ -161,7 +166,31 @@ async def reviewer_node(state: ShoppingState) -> dict:
                 "trust_score": 0.5,
             }
 
-        review_insights[pid] = {"product_id": pid, **insight}
+    # Split into max 2 chunks (e.g. 3 products and 2 products) to stay within 2 LLM calls
+    chunks = [products_to_analyze[i:i + 3] for i in range(0, len(products_to_analyze), 3)]
+    
+    for chunk in chunks[:2]:  # Enforce strictly max 2 calls
+        if not chunk:
+            continue
+        
+        batch_results = await _batch_analyze_reviews_with_llm(chunk, active_llm)
+        
+        for item in chunk:
+            pid = item["product_id"]
+            pname = item["product_name"]
+            
+            # Fallback to basic sentiment if LLM failed to return this product
+            if pname in batch_results:
+                insight = batch_results[pname]
+            else:
+                insight = {
+                    "sentiment_score": compute_basic_sentiment(item["review_text"]),
+                    "positive_themes": [],
+                    "negative_themes": [],
+                    "review_summary": "Automated review analysis unavailable.",
+                    "trust_score": 0.5,
+                }
+            review_insights[pid] = {"product_id": pid, **insight}
 
     # --- Persist review insights to Supabase ---
     try:

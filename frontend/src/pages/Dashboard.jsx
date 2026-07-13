@@ -18,6 +18,7 @@ import TopPicks from "../components/TopPicks";
 import ReviewInsights from "../components/ReviewInsights";
 import SecondChanceShelf from "../components/SecondChanceShelf";
 import FollowUpChat from "../components/FollowUpChat";
+import { toast } from "sonner";
 
 export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
   const {
@@ -112,6 +113,15 @@ export default function Dashboard({ triggerSearchRef, restoreResultsRef }) {
           setError(null);
           setInterrupt(null);
           setLoading(false);
+          break;
+        case "limit_reached":
+          stopRequestedRef.current = false;
+          setSearchInProgress(false);
+          setLoading(false);
+          toast.error(data.message || "Free limit reached. You have 0 free searches left.", {
+            className: "animate-shake bg-red-500 text-white border-none",
+            duration: 4000,
+          });
           break;
         default:
           break;

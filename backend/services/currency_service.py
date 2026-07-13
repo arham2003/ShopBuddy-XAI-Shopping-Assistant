@@ -199,18 +199,15 @@ def convert_price(
 # ---------------------------------------------------------------------------
 # Batch normalizer
 # ---------------------------------------------------------------------------
-async def normalize_product_prices(
+def normalize_product_prices(
     products: list[dict],
     target_currency: str,
-    db: AsyncSession,
+    usd_to_pkr: float,
 ) -> list[dict]:
     """
     Takes a list of product dicts, converts all prices to target_currency,
     and sets price_display + currency_display on each product.
     """
-    rate_info = await get_exchange_rate(db)
-    usd_to_pkr = rate_info["usd_to_pkr"]
-
     for product in products:
         product["price_display"] = convert_price(
             amount=product["price_original"],

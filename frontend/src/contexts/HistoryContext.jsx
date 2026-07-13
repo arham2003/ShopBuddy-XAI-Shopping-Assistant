@@ -3,7 +3,6 @@
  * Also owns the sidebar open/close state so any component can toggle it.
  *
  * Full search results are cached in a separate localStorage key
- * (shopbuddy_result_cache) so that clicking a history entry restores
  * results instantly without re-running the search pipeline.
  */
 import {

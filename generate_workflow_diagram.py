@@ -1,7 +1,7 @@
 """
 generate_workflow_diagram.py
 
-Visualizes the ShopExplain AI LangGraph state graph as:
+Visualizes the ShopBuddy AI LangGraph state graph as:
   1. Mermaid diagram  (always works — paste at mermaid.live)
   2. PNG image        (via mermaid.ink API, then pygraphviz fallback)
   3. ASCII art        (requires grandalf: pip install grandalf)
@@ -160,7 +160,7 @@ def visualize(graph: StateGraph, output_dir: str = ".") -> None:
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    print("\nBuilding ShopExplain AI state graph...\n")
+    print("\nBuilding ShopBuddy AI state graph...\n")
     graph = build_graph()
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph_output")

@@ -79,8 +79,6 @@ class Product(Base):
     review_count = Column(Integer, default=0)
     product_url = Column(Text, default="")
     image_url = Column(Text, default="")
-    discount_percentage = Column(Float, nullable=True)
-    brand = Column(String, nullable=True)
     value_score = Column(Float, nullable=True)
     recommendation_badge = Column(String, nullable=True)
     reasoning_chain = Column(JSON, nullable=True)          # list[str]
@@ -121,3 +119,18 @@ class ExchangeRateCache(Base):
 
     def __repr__(self) -> str:
         return f"<ExchangeRateCache {self.base_currency}→{self.target_currency} = {self.rate}>"
+
+
+# ---------------------------------------------------------------------------
+# IPUsage — Track IP-based search limits
+# ---------------------------------------------------------------------------
+class IPUsage(Base):
+    __tablename__ = "ip_usage"
+
+    ip_address = Column(String, primary_key=True)
+    queries_used = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    def __repr__(self) -> str:
+        return f"<IPUsage {self.ip_address} used={self.queries_used}>"

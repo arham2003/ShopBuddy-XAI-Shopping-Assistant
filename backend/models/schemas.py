@@ -22,9 +22,7 @@ class UnifiedProduct(BaseModel):
     rating: float
     review_count: int
     product_url: str
-    image_url: str
-    discount_percentage: float | None = None
-    brand: str | None = None
+    image_url: str = ""
     value_score: float | None = None
     recommendation_badge: str | None = None     # e.g. "Best Value", "Top Rated"
     reasoning_chain: list[str] | None = None    # step-by-step reasoning

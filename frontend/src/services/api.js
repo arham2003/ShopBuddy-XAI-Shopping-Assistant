@@ -22,6 +22,11 @@ export async function getExchangeRate() {
   return data;
 }
 
+export async function getIPUsage() {
+  const { data } = await client.get("/api/usage");
+  return data;
+}
+
 export async function getDemoSessions() {
   const { data } = await client.get("/api/demo-sessions");
   return data;

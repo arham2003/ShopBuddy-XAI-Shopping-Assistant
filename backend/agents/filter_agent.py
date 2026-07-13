@@ -41,14 +41,14 @@ llm = ChatGoogleGenerativeAI(
 )
 
 llm_llama70b = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="openai/gpt-oss-20b",
     temperature=1.0,
-    max_tokens=32768,
+    max_tokens=11000,
     groq_api_key=settings.GROQ_API_KEY,
 )
 
 llm_llama8b = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="openai/gpt-oss-20b",
     temperature=1.0,
     max_tokens=128000,
     groq_api_key=settings.GROQ_API_KEY,
@@ -57,9 +57,9 @@ llm_llama8b = ChatGroq(
 
 def _get_llm(model_name: str):
     """Return the LLM instance matching the requested model name."""
-    if model_name == "llama-3.3-70b-versatile":
+    if model_name == "openai/gpt-oss-20b":
         return llm_llama70b
-    if model_name == "llama-3.1-8b-instant":
+    if model_name == "openai/gpt-oss-20b":
         return llm_llama8b
     return llm
 

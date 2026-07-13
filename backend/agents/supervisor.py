@@ -42,27 +42,17 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GOOGLE_API_KEY,
 )
 
-llm_llama70b = ChatGroq(
-    model="llama-3.3-70b-versatile",
+llm_gpt_oss_20b = ChatGroq(
+    model="openai/gpt-oss-20b",
     temperature=1.0,
-    max_tokens=32768,
+    max_tokens=4000,
     groq_api_key=settings.GROQ_API_KEY,
 )
-
-llm_llama8b = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=1.0,
-    max_tokens=128000,
-    groq_api_key=settings.GROQ_API_KEY,
-)
-
 
 def _get_llm(model_name: str):
     """Return the LLM instance matching the requested model name."""
-    if model_name == "llama-3.3-70b-versatile":
-        return llm_llama70b
-    if model_name == "llama-3.1-8b-instant":
-        return llm_llama8b
+    if model_name == "openai/gpt-oss-20b":
+        return llm_gpt_oss_20b
     return llm  # default: gemini-3-flash-preview
 
 
@@ -240,25 +230,16 @@ _supervisor_react = create_react_agent(
     prompt=_REACT_PROMPT,
 )
 
-_supervisor_react_llama70b = create_react_agent(
-    model=llm_llama70b,
+_supervisor_react_gpt_oss_20b = create_react_agent(
+    model=llm_gpt_oss_20b,
     tools=[parse_query_tool, validate_keywords_tool],
     prompt=_REACT_PROMPT,
 )
-
-_supervisor_react_llama8b = create_react_agent(
-    model=llm_llama8b,
-    tools=[parse_query_tool, validate_keywords_tool],
-    prompt=_REACT_PROMPT,
-)
-
 
 def _get_react_agent(model_name: str):
     """Return the ReAct agent for the requested model."""
-    if model_name == "llama-3.3-70b-versatile":
-        return _supervisor_react_llama70b
-    if model_name == "llama-3.1-8b-instant":
-        return _supervisor_react_llama8b
+    if model_name == "openai/gpt-oss-20b":
+        return _supervisor_react_gpt_oss_20b
     return _supervisor_react
 
 

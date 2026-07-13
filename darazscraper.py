@@ -15,6 +15,17 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from urllib.parse import urlparse, urlencode, parse_qs
 
+def get_httpx_kwargs(headers: dict) -> dict:
+    kwargs = {
+        "headers": headers,
+        "timeout": 15.0,
+        "follow_redirects": True,
+    }
+    proxy = os.environ.get("SCRAPER_PROXY")
+    if proxy:
+        kwargs["proxy"] = proxy
+    return kwargs
+
 
 # ===================== SAFE TYPE HELPERS =====================
 # Daraz API returns wildly inconsistent types. These ensure we
@@ -488,7 +499,7 @@ async def search_daraz(
     total_results = 0
     total_pages = 0
 
-    async with httpx.AsyncClient(headers=HEADERS, timeout=15.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(**get_httpx_kwargs(HEADERS)) as client:
         for p in range(page, page + max_pages):
             url = "https://www.daraz.pk/catalog/"
             params = {
@@ -632,7 +643,7 @@ async def get_product_details(product_url: str) -> Optional[DarazProduct]:
     # Clean the URL first
     clean_url = clean_daraz_url(product_url)
 
-    async with httpx.AsyncClient(headers=HEADERS, timeout=15.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(**get_httpx_kwargs(HEADERS)) as client:
         try:
             response = await client.get(clean_url)
             response.raise_for_status()
