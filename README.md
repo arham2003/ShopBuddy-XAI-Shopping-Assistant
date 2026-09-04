@@ -40,6 +40,9 @@ This workflow has multiple specialized tasks that are easier, safer, and more re
    - `npm run dev`
 4. Open the frontend URL shown by Vite (usually `http://localhost:5173`).
 
+### Demo Video
+[[Demo Link:](https://drive.google.com/drive/folders/1zBXMMo8K8XfQ3BT12SBD00_zLo62keQA?usp=sharing)]
+
 
 ### Tech stack
 
